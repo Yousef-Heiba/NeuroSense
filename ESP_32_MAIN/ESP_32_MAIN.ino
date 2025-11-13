@@ -15,7 +15,7 @@ String lastDate = "";
 
 void setup() {
   Serial.begin(115200);
-
+  pinMode(soundData, INPUT);
   WiFi.begin("hospital", "password");
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
