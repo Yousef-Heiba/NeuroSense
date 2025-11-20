@@ -1,0 +1,169 @@
+#include <WiFi.h>
+#include <time.h>
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+
+const char* ssid = "vhm";
+const char* password = "1234567890";
+
+#define NTP_SERVER "pool.ntp.org"
+#define UTC_OFFSET_SEC -5 * 3600
+#define DST_OFFSET_SEC 3600
+
+#define SD_CS   10
+#define SD_MOSI 11   
+#define SD_MISO 13     
+#define SD_SCK  12   
+
+#define lightData 9
+#define soundData 8
+#define x_axis 4
+#define y_axis 5
+#define z_axis 6
+
+#define LED_PIN 2
+
+#define LOG_INTERVAL 1000  
+#define LOG_START_HOUR 20  
+#define LOG_END_HOUR 7
+
+String currentFileName = "";
+unsigned long lastLogTime = 0;
+unsigned long lastBlinkTime = 0;
+bool ledState = LOW;
+
+String getFileName(struct tm &timeinfo) {
+  char filename[20];
+  sprintf(filename, "/%02d_%02d_%04d.csv", timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_year + 1900);
+  return String(filename);
+}
+
+bool isLoggingTime(int hour) {
+  return (hour >= LOG_START_HOUR || hour < LOG_END_HOUR);
+}
+
+void writeCSVHeader(fs::FS &fs, const char * path) {
+  if (fs.exists(path)) {
+    return; 
+  }
+  File file = fs.open(path, FILE_WRITE);
+  if (file) {
+    file.println("Time,Light,Sound,X,Y,Z");
+    file.close();
+  }
+}
+
+void appendCSVData(fs::FS &fs, const char * path, const char * data) {
+  File file = fs.open(path, FILE_APPEND);
+  if (file) {
+    file.println(data);
+    file.close();
+  }
+}
+
+void error_sd() {
+  while(1) {
+    digitalWrite(LED_PIN, HIGH); delay(100);
+    digitalWrite(LED_PIN, LOW);  delay(100);
+  }
+}
+
+void error_wifi() {
+  while(1) {
+    digitalWrite(LED_PIN, HIGH); delay(200);
+    digitalWrite(LED_PIN, LOW);  delay(200);
+    digitalWrite(LED_PIN, HIGH); delay(200);
+    digitalWrite(LED_PIN, LOW);  delay(1000);
+  }
+}
+void error_ntp() {
+  while(1) {
+    digitalWrite(LED_PIN, HIGH); delay(200);
+    digitalWrite(LED_PIN, LOW);  delay(200);
+    digitalWrite(LED_PIN, HIGH); delay(200);
+    digitalWrite(LED_PIN, LOW);  delay(200);
+    digitalWrite(LED_PIN, HIGH); delay(200);
+    digitalWrite(LED_PIN, LOW);  delay(1000);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD init failed!");
+    error_sd();
+  }
+  Serial.println("SD initialized");
+  
+  WiFi.begin(ssid, password);
+  int wifi_retry = 0;
+  while (WiFi.status() != WL_CONNECTED && wifi_retry < 40) {
+    delay(500);
+    wifi_retry++;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi failed!");
+    error_wifi();
+  }
+  Serial.println("WiFi connected");
+
+  configTime(UTC_OFFSET_SEC, DST_OFFSET_SEC, NTP_SERVER);
+  struct tm timeinfo;
+  int time_retry = 0;
+  while(!getLocalTime(&timeinfo) && time_retry < 20) {
+    delay(500);
+    time_retry++;
+  }
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Time sync failed!");
+    error_ntp();
+  }
+  Serial.println("Time synchronized");
+  
+  currentFileName = getFileName(timeinfo);
+  writeCSVHeader(SD, currentFileName.c_str());
+  Serial.println("File ready: " + currentFileName);
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastBlinkTime >= 2000) {
+    lastBlinkTime = currentMillis;
+    ledState = !ledState;
+    digitalWrite(LED_PIN, ledState);
+  }
+
+  if (currentMillis - lastLogTime >= LOG_INTERVAL) {
+    lastLogTime = currentMillis;
+
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+            String newFileName = getFileName(timeinfo);
+      if (newFileName != currentFileName) {
+        currentFileName = newFileName;
+        writeCSVHeader(SD, currentFileName.c_str());
+        Serial.println("New file: " + currentFileName);
+      }
+      if (isLoggingTime(timeinfo.tm_hour)) {
+        char timeStr[10];
+        sprintf(timeStr, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        
+        int light = analogRead(lightData);
+        int sound = analogRead(soundData);
+        int x = analogRead(x_axis);
+        int y = analogRead(y_axis);
+        int z = analogRead(z_axis);
+        
+        char csvLine[100];
+        sprintf(csvLine, "%s,%d,%d,%d,%d,%d", 
+                timeStr, light, sound, x, y, z);
+        
+        appendCSVData(SD, currentFileName.c_str(), csvLine);
+      }
+    }
+  }
+}
