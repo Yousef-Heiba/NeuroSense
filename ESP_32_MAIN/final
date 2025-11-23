@@ -1,0 +1,196 @@
+#include <WiFi.h>
+#include <time.h>
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+
+//wifi name and password
+const char* ssid = "Haris Niaz";
+const char* password = "sadqaejariya";
+
+#define ntp_server "pool.ntp.org"
+#define utc_offset_sec -5 * 3600
+#define dst_offset_sec 3600
+
+#define sd_cs   10  
+#define sd_mosi 11  
+#define sd_sck  12  
+#define sd_miso 13  
+
+#define light_data 1
+#define sound_data 2   
+#define x_axis    4   
+#define y_axis    5   
+#define z_axis    6   
+#define led_pin   14 
+
+#define log_interval 1000  
+#define log_start_hour 7
+#define log_end_hour 18
+
+String current_file_name = "";
+unsigned long last_log_time = 0;
+unsigned long last_blink_time = 0;
+bool led_state = LOW;
+
+//create a string for the file name
+String get_file_name(struct tm &timeinfo) {
+  char filename[20];
+  sprintf(filename, "/%02d_%02d_%04d.csv", timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_year + 1900);
+  return String(filename);
+}
+
+//check if it is logging time
+bool is_logging_time(int hour) {
+  return (hour >= log_start_hour || hour < log_end_hour);
+}
+
+//write the headers of each collumns
+void write_csv_header(fs::FS &fs, const char * path) {
+  if (fs.exists(path)) {
+    return; 
+  }
+  File file = fs.open(path, FILE_WRITE);
+  if (file) {
+    file.println("Time,Light,Sound,X,Y,Z");
+    file.close();
+  }
+}
+
+//merge the data from live data into sd card
+void merge_csv_data(fs::FS &fs, const char * path, const char * data) {
+  File file = fs.open(path, FILE_APPEND);
+  if (file) {
+    file.println(data);
+    file.close();
+  }
+}
+
+//3 error function
+void error_sd() {
+  while(1) {
+    digitalWrite(led_pin, HIGH); delay(100);
+    digitalWrite(led_pin, LOW);  delay(100);
+  }
+}
+
+void error_wifi() {
+  while(1) {
+    digitalWrite(led_pin, HIGH); delay(200);
+    digitalWrite(led_pin, LOW);  delay(200);
+    digitalWrite(led_pin, HIGH); delay(200);
+    digitalWrite(led_pin, LOW);  delay(1000);
+  }
+}
+
+void error_ntp() {
+  while(1) {
+    digitalWrite(led_pin, HIGH); delay(200);
+    digitalWrite(led_pin, LOW);  delay(200);
+    digitalWrite(led_pin, HIGH); delay(200);
+    digitalWrite(led_pin, LOW);  delay(200);
+    digitalWrite(led_pin, HIGH); delay(200);
+    digitalWrite(led_pin, LOW);  delay(1000);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(led_pin, OUTPUT);
+
+
+  SPI.begin(sd_sck, sd_miso, sd_mosi, sd_cs); //begin the SD card SPI protocol
+  if (!SD.begin(sd_cs)) {
+    Serial.println("sd failed!");
+    error_sd();
+    }
+  Serial.println("sd success");
+  
+  WiFi.begin(ssid, password); //connect to wifi
+  int wifi_retry = 0;
+  while (WiFi.status() != WL_CONNECTED && wifi_retry < 40) {
+    delay(500);
+    wifi_retry++;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("wifi failed!");
+    error_wifi();
+  }
+  Serial.println("wifi connected");
+
+  configTime(utc_offset_sec, dst_offset_sec, ntp_server); //sync the time with NTP
+  struct tm timeinfo;
+  int time_retry = 0;
+  while(!getLocalTime(&timeinfo) && time_retry < 20) {
+    delay(500);
+    time_retry++;
+  }
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("time sync failed!");
+    error_ntp();
+  }
+  Serial.println("time synchronized");
+  
+  current_file_name = get_file_name(timeinfo);
+  write_csv_header(SD, current_file_name.c_str());
+  
+  Serial.print("file_ready: ");
+  Serial.println(current_file_name);
+}
+
+void loop() {
+  unsigned long current_millis = millis(); 
+  
+  if (current_millis - last_blink_time >= 2000) { //simple LED Blynk to check if the device working normally
+    last_blink_time = current_millis;
+    led_state = !led_state;
+    digitalWrite(led_pin, led_state);
+  }
+
+  if (current_millis - last_log_time >= log_interval) {
+    last_log_time = current_millis;
+
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+      
+      char time_str[10];
+      sprintf(time_str, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+      
+      int light = analogRead(light_data);
+      int sound = analogRead(sound_data);
+      int x = analogRead(x_axis);
+      int y = analogRead(y_axis);
+      int z = analogRead(z_axis);
+
+      Serial.print("live_data -> ");
+      Serial.print("time:");
+      Serial.print(time_str);
+      Serial.print(", light:");
+      Serial.print(light);
+      Serial.print(", sound:");
+      Serial.print(sound);
+      Serial.print(", x_axis:");
+      Serial.print(x);
+      Serial.print(", y_axis:");
+      Serial.print(y);
+      Serial.print(", z_axis:");
+      Serial.println(z);
+
+      if (is_logging_time(timeinfo.tm_hour)) {
+        
+        String new_file_name = get_file_name(timeinfo);
+        if (new_file_name != current_file_name) {
+          current_file_name = new_file_name;
+          write_csv_header(SD, current_file_name.c_str());
+          Serial.print("new_file_created: ");
+          Serial.println(current_file_name);
+        }
+
+        char csv_line[100];
+        sprintf(csv_line, "%s,%d,%d,%d,%d,%d", time_str, light, sound, x, y, z);
+        
+        merge_csv_data(SD, current_file_name.c_str(), csv_line);
+      } 
+    }
+  }
+}
