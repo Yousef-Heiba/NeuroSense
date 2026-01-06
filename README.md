@@ -30,7 +30,15 @@ NeuroSense addresses this gap by **continuously logging environmental sleep disr
 - **Analog sound sensor** – noise level tracking  
 - **Accelerometer (ADXL345)** – patient/bed movement detection  
 - **SD card reader** – local data storage  
-- **LED indicator** – system status feedback  
+- **LED indicator** – system status feedback
+
+![Circuit diagram](images/neurosenseimage5.png)
+
+### Enclosure Design
+The electronics are housed in a custom 3D-printed enclosure designed to mount securely to a hospital bed mattress.
+
+![3D enclosure model](images/neurosenseimage2.png)
+
 
 All components operate at **3.3V** and are enclosed in a custom **3D-printed housing** designed to attach to a hospital bed mattress.
 
@@ -44,6 +52,8 @@ All components operate at **3.3V** and are enclosed in a custom **3D-printed hou
   - Sound level
   - Accelerometer X, Y, Z values  
 - Data is written to the SD card as **CSV files**
+  
+![Example CSV output](images/neurosenseimage3.png)
 
 ---
 
@@ -68,7 +78,7 @@ Key features include:
   - Light levels over time  
   - Sound intensity trends  
   - Movement magnitude  
-
+![Data visualization plots](images/neurosenseimage1.png)
 This allows staff or researchers to quickly identify **environmental disruptions during sleep**.
 
 
@@ -86,6 +96,7 @@ This allows staff or researchers to quickly identify **environmental disruptions
   - Correct CSV formatting  
   - Reliable data visualization output  
 
+![Hardware prototype on breadboard](images/neurosenseimage4.png)
 ---
 
 ## Privacy & Ethics
@@ -118,4 +129,4 @@ Team members:
 - Haris Niaz  
 - Yousuf Abdelkader  
 - Minh Nguyen  
-- Aman Seby Sen  
+- Aman
